@@ -34,21 +34,21 @@ The PC announces that it understands this message with a new `gamepad` flag in t
 
 ### Capture on Android
 
-In stock RustDesk on Android the face buttons, shoulder buttons, Start, Select and stick clicks are silently dropped, and stick and trigger movement never reaches the app at all. The fork reads the controller in the Android part of the app (`MainActivity`) and hands every change to the Flutter part over a channel named `is2l/gamepad`. Capture is only switched on while a remote session is on screen.
+In stock RustDesk on Android the face buttons, shoulder buttons, Start, Select and stick clicks are silently dropped, and stick and trigger movement never reaches the app at all. The fork reads the controller in the Android part of the app (`MainActivity`) and hands every change to the Flutter part over a channel named `is2l/gamepad`. Capture is only switched on while a remote session with controller passthrough enabled is on screen, or while the Controller screen is open.
 
 ### A virtual controller on the Linux PC
 
 On the PC, a new module (`src/server/gamepad_service.rs`) receives `GamepadEvent` messages and feeds them to a virtual Xbox-style controller. The virtual controller is created through Linux `uinput` by the RustDesk service, which runs as root, the same way RustDesk already creates its virtual keyboard and mouse. Games see an ordinary controller. It is removed when the connection closes.
 
-The host only accepts controller input when the new setting "Allow game controller input" is ticked.
+The host only accepts controller input when the new setting "Allow game controller input" (settings, Security, Permissions; Linux only) is ticked and the connection has the keyboard/mouse permission. The setting is ticked by default: the option behind it, `allow-gamepad`, counts as on unless it is set to `N`.
 
 ### Mapping profiles
 
-A "Controller" screen in the app shows the live state of the controller and lets each physical button be assigned to a controller button. Assignments are stored as named profiles.
+A "Controller" screen in the app shows the live state of the controller and lets each physical button or trigger be assigned to a controller button, a keyboard key, a mouse button or nothing. Each stick can drive the left stick, the right stick, the D-pad, the mouse pointer or nothing, with its own deadzone and inversion. Assignments are stored as named profiles, and the profile last used with a PC is remembered for that PC.
 
 ### The control panel on the Thor's bottom screen
 
-While a session is open, the bottom screen shows a panel (channel `is2l/panel`) with the PC's name, frame rate, codec, delay and quality, whether controller passthrough is active, and the current mapping profile. Its buttons: disconnect, show keyboard, send Esc, send Ctrl+Alt+Del, frame rate up/down, quality up/down, open the mapping screen, switch controller passthrough on/off, and a touchpad area that moves and clicks the PC's mouse.
+While a session is open, the bottom screen shows a panel (channel `is2l/panel`) with the PC's name, frame rate, codec, delay and quality, whether controller passthrough is active, and the current mapping profile. Its buttons: disconnect (tap twice), show keyboard, send Esc, send Ctrl+Alt+Del, send Alt+Tab, switch between fitted and 1:1 view, frame rate up/down, quality up/down, next codec, switch controller passthrough on/off, open the mapping screen, previous/next mapping profile, and a touchpad area that moves, clicks and scrolls the PC's mouse. On a device without a second screen the same panel opens from the session menu ("Control panel").
 
 ## How to use it
 
@@ -56,7 +56,7 @@ On the PC (Linux):
 
 1. Install the modified RustDesk built from this repository (see `IS2L-BUILD.md`). Remove stock RustDesk first; the two cannot be installed together on the PC.
 2. Make sure it is installed **as a service** (the `.deb` does this; the service is called `rustdesk`). The service is what creates the virtual controller. A portable copy started by hand cannot do it.
-3. Open its settings and tick **Allow game controller input**.
+3. Open its settings and check that **Allow game controller input** is ticked (it is by default).
 4. In the same settings, enable **Direct IP access**. Set a permanent password.
 5. Install Tailscale and sign in.
 
@@ -70,7 +70,7 @@ On the handheld:
 
 ## Against a stock RustDesk host
 
-If the PC runs stock RustDesk, it does not announce the `gamepad` feature. The app then does not send controller messages; buttons fall back to keyboard keys, and sticks and triggers do nothing (no analog input). Everything else works as in stock RustDesk.
+If the PC runs stock RustDesk, it does not announce the `gamepad` feature. The app then does not send controller messages; buttons, triggers and sticks fall back to fixed keyboard keys (for example A is Z, B is X, the D-pad and the left stick are the arrow keys, the right stick is I/J/K/L); a trigger or stick counts as pressed past half of its travel, so there is no analog input. Everything else works as in stock RustDesk.
 
 ## Known limits
 
@@ -90,7 +90,7 @@ Everything. Nothing in this fork has been compiled, installed or run. In particu
 - the Android app builds, installs beside stock RustDesk, and starts;
 - controller buttons, sticks and triggers are captured on an AYN Thor, on a phone or on a trifold with a connected controller;
 - the virtual controller appears on the Linux PC and games accept it;
-- the "Allow game controller input" setting works and is off by default;
+- the "Allow game controller input" setting works and is on by default;
 - mapping profiles save and load;
 - the control panel appears on the Thor's bottom screen and its buttons work;
 - the fallback against a stock RustDesk host behaves as described;

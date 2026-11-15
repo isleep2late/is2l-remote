@@ -684,6 +684,17 @@ class GamepadModel extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  void onPeerInfo(FFI? ffi) {
+    if (!_sessionActive || ffi == null || !identical(ffi, _ffi?.target)) return;
+    _sentPads.clear();
+    _downKeys.clear();
+    _downMouse.clear();
+    _peerSupports = null;
+    _peerSupportsCheckedAt = null;
+    _forwardAll();
+    notifyListeners();
+  }
+
   void endSession() {
     if (!_sessionActive) return;
     _piWorker?.dispose();
@@ -719,6 +730,7 @@ class GamepadModel extends ChangeNotifier with WidgetsBindingObserver {
     bind.mainSetLocalOption(
         key: kOptionGamepadPassthrough, value: value ? 'Y' : 'N');
     _updateCapture();
+    if (value) _forwardAll();
     notifyListeners();
   }
 

@@ -545,6 +545,26 @@ class RustdeskImpl {
         () => js.context.callMethod('setByName', ['input_string', value]));
   }
 
+  Future<void> sessionSendGamepad(
+      {required UuidValue sessionId,
+      required int index,
+      required bool connected,
+      required int buttons,
+      required int lx,
+      required int ly,
+      required int rx,
+      required int ry,
+      required int lt,
+      required int rt,
+      dynamic hint}) {
+    return Future.value();
+  }
+
+  bool sessionPeerSupportsGamepad(
+      {required UuidValue sessionId, dynamic hint}) {
+    return false;
+  }
+
   Future<void> sessionSendChat(
       {required UuidValue sessionId, required String text, dynamic hint}) {
     return Future(

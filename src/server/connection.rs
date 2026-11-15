@@ -812,6 +812,11 @@ impl Connection {
                             }
                             if &name == "keyboard" {
                                 conn.keyboard = enabled;
+                                #[cfg(target_os = "linux")]
+                                if !enabled && conn.gamepad_active {
+                                    conn.gamepad_active = false;
+                                    crate::server::gamepad_service::on_connection_closed(conn.inner.id());
+                                }
                                 conn.send_permission(Permission::Keyboard, enabled).await;
                                 // Until authorized, only record the value; try_sub_monitor_services subscribes from it.
                                 if let Some(s) = conn.server.upgrade().filter(|_| conn.authorized) {
@@ -5086,6 +5091,11 @@ impl Connection {
         if let Ok(q) = o.disable_keyboard.enum_value() {
             if q != BoolOption::NotSet {
                 self.disable_keyboard = q == BoolOption::Yes;
+                #[cfg(target_os = "linux")]
+                if self.disable_keyboard && self.gamepad_active {
+                    self.gamepad_active = false;
+                    crate::server::gamepad_service::on_connection_closed(self.inner.id());
+                }
                 if let Some(s) = self.server.upgrade() {
                     s.write().unwrap().subscribe(
                         super::clipboard_service::NAME,
