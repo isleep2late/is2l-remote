@@ -21,6 +21,7 @@ static IPC_REQUEST_TIMEOUT: u64 = 1000;
 static IPC_POSTFIX_KEYBOARD: &str = "_uinput_keyboard";
 static IPC_POSTFIX_MOUSE: &str = "_uinput_mouse";
 static IPC_POSTFIX_CONTROL: &str = "_uinput_control";
+static IPC_POSTFIX_GAMEPAD: &str = "_uinput_gamepad";
 
 pub mod client {
     use super::{layout::LayoutKey, *};
@@ -358,6 +359,25 @@ pub mod client {
         }
     }
 
+    pub struct UInputGamepad {
+        conn: Connection,
+        rt: Runtime,
+    }
+
+    impl UInputGamepad {
+        pub fn new() -> ResultType<Self> {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            let conn = rt.block_on(ipc::connect(IPC_CONN_TIMEOUT, IPC_POSTFIX_GAMEPAD))?;
+            Ok(Self { conn, rt })
+        }
+
+        pub fn send(&mut self, data: ipc::DataGamepad) -> ResultType<()> {
+            self.rt.block_on(self.conn.send(&Data::Gamepad(data)))
+        }
+    }
+
     pub async fn set_resolution(minx: i32, maxx: i32, miny: i32, maxy: i32) -> ResultType<()> {
         let mut conn = ipc::connect(IPC_CONN_TIMEOUT, IPC_POSTFIX_CONTROL).await?;
         conn.send(&Data::Control(ipc::DataControl::Resolution {
@@ -382,9 +402,16 @@ pub mod service {
     };
     #[cfg(target_os = "linux")]
     use std::os::unix::io::AsRawFd;
-    use std::{collections::HashMap, sync::Mutex};
+    use crate::server::gamepad_service::{self, GamepadState};
+    use std::{
+        collections::{HashMap, VecDeque},
+        sync::Mutex,
+        time::Instant,
+    };
 
     const RAW_KEY_STATE_ERROR_LOG_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+    const GAMEPAD_ERROR_LOG_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+    const GAMEPAD_CREATION_HISTORY: std::time::Duration = std::time::Duration::from_secs(60);
 
     lazy_static::lazy_static! {
     static ref KEY_MAP: HashMap<enigo::Key, evdev::Key> = HashMap::from(
@@ -1148,6 +1175,167 @@ pub mod service {
         });
     }
 
+    lazy_static::lazy_static! {
+        static ref GAMEPAD_SLOTS: Mutex<[bool; gamepad_service::MAX_GAMEPADS]> =
+            Mutex::new([false; gamepad_service::MAX_GAMEPADS]);
+    }
+
+    struct ServiceGamepad {
+        slot: usize,
+        device: gamepad_device::UInputGamepadDevice,
+        state: GamepadState,
+    }
+
+    impl ServiceGamepad {
+        fn new() -> ResultType<Self> {
+            let slot = {
+                let mut slots = GAMEPAD_SLOTS.lock().unwrap();
+                match slots.iter().position(|used| !*used) {
+                    Some(slot) => {
+                        slots[slot] = true;
+                        slot
+                    }
+                    None => bail!("all {} gamepad slots are in use", slots.len()),
+                }
+            };
+            let name = format!("is2l Remote Gamepad {}", slot + 1);
+            match gamepad_device::UInputGamepadDevice::new(&name) {
+                Ok(device) => Ok(Self {
+                    slot,
+                    device,
+                    state: GamepadState::default(),
+                }),
+                Err(err) => {
+                    GAMEPAD_SLOTS.lock().unwrap()[slot] = false;
+                    Err(err.into())
+                }
+            }
+        }
+
+        fn update(&mut self, state: GamepadState) {
+            let events = gamepad_service::diff_state(&self.state, &state);
+            if !events.is_empty() {
+                allow_err!(self.device.emit(&events));
+            }
+            self.state = state;
+        }
+    }
+
+    impl Drop for ServiceGamepad {
+        fn drop(&mut self) {
+            self.update(GamepadState::default());
+            GAMEPAD_SLOTS.lock().unwrap()[self.slot] = false;
+        }
+    }
+
+    fn handle_gamepad(
+        gamepads: &mut HashMap<(i32, u32), ServiceGamepad>,
+        creations: &mut HashMap<i32, VecDeque<Instant>>,
+        data: &ipc::DataGamepad,
+    ) {
+        match data {
+            ipc::DataGamepad::State {
+                conn_id,
+                index,
+                connected,
+                buttons,
+                lx,
+                ly,
+                rx,
+                ry,
+                lt,
+                rt,
+            } => {
+                if *index >= gamepad_service::MAX_GAMEPADS_PER_CONNECTION {
+                    return;
+                }
+                let key = (*conn_id, *index);
+                if !*connected {
+                    if gamepads.remove(&key).is_some() {
+                        log::info!("UInput gamepad removed: conn={}, index={}", conn_id, index);
+                    }
+                    return;
+                }
+                if !gamepads.contains_key(&key) {
+                    let now = Instant::now();
+                    if !gamepad_service::allow_creation(creations.entry(*conn_id).or_default(), now)
+                    {
+                        hbb_common::throttled_log!(
+                            GAMEPAD_ERROR_LOG_INTERVAL,
+                            warn,
+                            "Too many uinput gamepad creations: conn={}",
+                            conn_id
+                        );
+                        return;
+                    }
+                    match ServiceGamepad::new() {
+                        Ok(gamepad) => {
+                            log::info!(
+                                "UInput gamepad created: conn={}, index={}, slot={}",
+                                conn_id,
+                                index,
+                                gamepad.slot + 1
+                            );
+                            gamepads.insert(key, gamepad);
+                        }
+                        Err(err) => {
+                            hbb_common::throttled_log!(
+                                GAMEPAD_ERROR_LOG_INTERVAL,
+                                error,
+                                "Failed to create gamepad: {}",
+                                err
+                            );
+                            return;
+                        }
+                    }
+                }
+                if let Some(gamepad) = gamepads.get_mut(&key) {
+                    gamepad.update(GamepadState::new(*buttons, *lx, *ly, *rx, *ry, *lt, *rt));
+                }
+            }
+            ipc::DataGamepad::Close(conn_id) => {
+                gamepads.retain(|key, _| key.0 != *conn_id);
+                let now = Instant::now();
+                creations.retain(|_, history| {
+                    history.back().is_some_and(|last| {
+                        now.saturating_duration_since(*last) < GAMEPAD_CREATION_HISTORY
+                    })
+                });
+            }
+        }
+    }
+
+    fn spawn_gamepad_handler(mut stream: Connection) {
+        log::debug!("spawn_gamepad_handler: new gamepad handler connection");
+        tokio::spawn(async move {
+            let mut gamepads: HashMap<(i32, u32), ServiceGamepad> = HashMap::new();
+            let mut creations: HashMap<i32, VecDeque<Instant>> = HashMap::new();
+            loop {
+                tokio::select! {
+                    res = stream.next() => {
+                        match res {
+                            Err(err) => {
+                                log::info!("UInput gamepad ipc connection closed: {}", err);
+                                break;
+                            }
+                            Ok(Some(data)) => {
+                                match data {
+                                    Data::Gamepad(data) => {
+                                        handle_gamepad(&mut gamepads, &mut creations, &data);
+                                    }
+                                    _ => {
+                                        log::warn!("Unexpected data type in gamepad handler");
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     #[cfg(target_os = "linux")]
     fn authorize_uinput_peer(postfix: &str, stream: &RawIpcConnection) -> bool {
         if !hbb_common::config::is_service_ipc_postfix(postfix) {
@@ -1224,6 +1412,13 @@ pub mod service {
         start_service(IPC_POSTFIX_CONTROL, spawn_controller_handler).await;
     }
 
+    /// Start uinput gamepad service.
+    #[tokio::main(flavor = "current_thread")]
+    pub async fn start_service_gamepad() {
+        log::info!("start uinput gamepad service");
+        start_service(IPC_POSTFIX_GAMEPAD, spawn_gamepad_handler).await;
+    }
+
     pub fn stop_service_keyboard() {
         log::info!("stop uinput keyboard service");
     }
@@ -1232,6 +1427,9 @@ pub mod service {
     }
     pub fn stop_service_control() {
         log::info!("stop uinput control service");
+    }
+    pub fn stop_service_gamepad() {
+        log::info!("stop uinput gamepad service");
     }
 }
 
@@ -1579,6 +1777,197 @@ mod mouce {
             unsafe {
                 // Destroy the device, the file is closed automatically by the File module
                 ioctl(fd, UI_DEV_DESTROY as c_ulong);
+            }
+        }
+    }
+}
+
+mod gamepad_device {
+    use crate::server::gamepad_service::{AXES, BUTTON_CODES, EV_ABS, EV_KEY};
+    use std::{
+        fs::File,
+        io::{Error, Result, Write},
+        mem::size_of,
+        os::{
+            raw::{c_char, c_int, c_long, c_uint, c_ulong, c_ushort},
+            unix::{fs::OpenOptionsExt, io::AsRawFd},
+        },
+        thread,
+        time::Duration,
+    };
+
+    const O_NONBLOCK: c_int = 2048;
+
+    const UI_ABS_SETUP: c_ulong = 1075598596;
+    const UI_SET_EVBIT: c_ulong = 1074025828;
+    const UI_SET_KEYBIT: c_ulong = 1074025829;
+    const UI_SET_ABSBIT: c_ulong = 1074025831;
+    const UI_DEV_SETUP: c_ulong = 1079792899;
+    const UI_DEV_CREATE: c_ulong = 21761;
+    const UI_DEV_DESTROY: c_ulong = 21762;
+
+    const EV_SYN: c_ushort = 0x00;
+    const SYN_REPORT: c_ushort = 0x00;
+    const BUS_USB: c_ushort = 0x03;
+    const VENDOR_ID: c_ushort = 0x045e;
+    const PRODUCT_ID: c_ushort = 0x028e;
+    const VERSION: c_ushort = 0x0110;
+    const UINPUT_MAX_NAME_SIZE: usize = 80;
+    const DEVICE_SETTLE: Duration = Duration::from_millis(100);
+
+    #[repr(C)]
+    struct UInputSetup {
+        id: InputId,
+        name: [c_char; UINPUT_MAX_NAME_SIZE],
+        ff_effects_max: c_uint,
+    }
+
+    #[repr(C)]
+    struct InputId {
+        bustype: c_ushort,
+        vendor: c_ushort,
+        product: c_ushort,
+        version: c_ushort,
+    }
+
+    #[repr(C)]
+    struct InputEvent {
+        tv_sec: c_long,
+        tv_usec: c_long,
+        r#type: c_ushort,
+        code: c_ushort,
+        value: c_int,
+    }
+
+    #[repr(C)]
+    struct UinputAbsSetup {
+        code: c_ushort,
+        absinfo: InputAbsinfo,
+    }
+
+    #[repr(C)]
+    struct InputAbsinfo {
+        value: c_int,
+        minimum: c_int,
+        maximum: c_int,
+        fuzz: c_int,
+        flat: c_int,
+        resolution: c_int,
+    }
+
+    extern "C" {
+        fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
+    }
+
+    fn check(ret: c_int) -> Result<()> {
+        if ret < 0 {
+            Err(Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub struct UInputGamepadDevice {
+        uinput_file: File,
+    }
+
+    impl UInputGamepadDevice {
+        pub fn new(name: &str) -> Result<Self> {
+            let device = UInputGamepadDevice {
+                uinput_file: File::options()
+                    .write(true)
+                    .custom_flags(O_NONBLOCK)
+                    .open("/dev/uinput")?,
+            };
+            let fd = device.uinput_file.as_raw_fd();
+
+            let mut usetup = UInputSetup {
+                id: InputId {
+                    bustype: BUS_USB,
+                    vendor: VENDOR_ID,
+                    product: PRODUCT_ID,
+                    version: VERSION,
+                },
+                name: [0; UINPUT_MAX_NAME_SIZE],
+                ff_effects_max: 0,
+            };
+            for (dst, src) in usetup
+                .name
+                .iter_mut()
+                .zip(name.bytes().take(UINPUT_MAX_NAME_SIZE - 1))
+            {
+                *dst = src as c_char;
+            }
+
+            unsafe {
+                check(ioctl(fd, UI_SET_EVBIT, EV_KEY as c_int))?;
+                for code in BUTTON_CODES {
+                    check(ioctl(fd, UI_SET_KEYBIT, code as c_int))?;
+                }
+
+                check(ioctl(fd, UI_SET_EVBIT, EV_ABS as c_int))?;
+                for (code, minimum, maximum, fuzz, flat) in AXES {
+                    check(ioctl(fd, UI_SET_ABSBIT, code as c_int))?;
+                    let abs_setup = UinputAbsSetup {
+                        code,
+                        absinfo: InputAbsinfo {
+                            value: 0,
+                            minimum,
+                            maximum,
+                            fuzz,
+                            flat,
+                            resolution: 0,
+                        },
+                    };
+                    check(ioctl(
+                        fd,
+                        UI_ABS_SETUP,
+                        &abs_setup as *const UinputAbsSetup,
+                    ))?;
+                }
+
+                check(ioctl(fd, UI_DEV_SETUP, &usetup as *const UInputSetup))?;
+                check(ioctl(fd, UI_DEV_CREATE))?;
+            }
+
+            thread::sleep(DEVICE_SETTLE);
+
+            Ok(device)
+        }
+
+        pub fn emit(&self, events: &[(u16, u16, i32)]) -> Result<()> {
+            let mut buf: Vec<InputEvent> = events
+                .iter()
+                .map(|(r#type, code, value)| InputEvent {
+                    tv_sec: 0,
+                    tv_usec: 0,
+                    r#type: *r#type,
+                    code: *code,
+                    value: *value,
+                })
+                .collect();
+            buf.push(InputEvent {
+                tv_sec: 0,
+                tv_usec: 0,
+                r#type: EV_SYN,
+                code: SYN_REPORT,
+                value: 0,
+            });
+            let bytes = unsafe {
+                std::slice::from_raw_parts(
+                    buf.as_ptr() as *const u8,
+                    buf.len() * size_of::<InputEvent>(),
+                )
+            };
+            (&self.uinput_file).write_all(bytes)
+        }
+    }
+
+    impl Drop for UInputGamepadDevice {
+        fn drop(&mut self) {
+            let fd = self.uinput_file.as_raw_fd();
+            unsafe {
+                ioctl(fd, UI_DEV_DESTROY);
             }
         }
     }

@@ -18,6 +18,7 @@ import '../../common.dart';
 import '../../common/widgets/overlay.dart';
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/remote_input.dart';
+import '../../models/gamepad_model.dart';
 import '../../models/input_model.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
@@ -25,6 +26,8 @@ import '../../models/shortcut_model.dart';
 import '../../utils/image.dart';
 import '../widgets/dialog.dart';
 import '../widgets/custom_scale_widget.dart';
+import '../widgets/control_panel.dart';
+import 'gamepad_mapping_page.dart';
 
 final initText = '1' * 1024;
 
@@ -113,6 +116,14 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   final TextEditingController _textController =
       TextEditingController(text: initText);
 
+  late final ControlPanelController _controlPanel = ControlPanelController(
+    ffi: gFFI,
+    id: widget.id,
+    onToggleKeyboard: _toggleSoftKeyboardFromPanel,
+    isKeyboardVisible: () =>
+        keyboardVisibilityController.isVisible && _showEdit,
+  );
+
   _RemotePageState(String id) {
     initSharedStates(id);
     gFFI.chatModel.voiceCallStatus.value = VoiceCallStatus.notStarted;
@@ -168,6 +179,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       }
     });
     WidgetsBinding.instance.addObserver(this);
+    _controlPanel.start();
+    GamepadModel.instance.startSession(gFFI, widget.id);
+    ControlPanelController.gamepad.openMapping = _openGamepadMapping;
 
     inputModel.keyboardInputAllowed = true;
 
@@ -188,6 +202,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   Future<void> dispose() async {
     HardwareKeyboard.instance.removeHandler(_handleLocalKeyEvent);
     WidgetsBinding.instance.removeObserver(this);
+    _controlPanel.stop();
+    ControlPanelController.gamepad.openMapping = null;
+    GamepadModel.instance.endSession();
     // Close the session up-front. `gFFI.close()` below only calls `sessionClose`
     // after several awaits (canvas save, image update, the `enable_soft_keyboard`
     // platform call), so if the app is backgrounded while this page is disposing,
@@ -480,6 +497,21 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
         _mobileFocusNode.requestFocus();
       });
     });
+  }
+
+  void _toggleSoftKeyboardFromPanel() {
+    if (!mounted) return;
+    if (gFFI.ffiModel.viewOnly || !gFFI.ffiModel.keyboard) return;
+    if (keyboardVisibilityController.isVisible && _showEdit) {
+      setState(() {
+        _showEdit = false;
+        gFFI.invokeMethod("enable_soft_keyboard", false);
+        _mobileFocusNode.unfocus();
+        _physicalFocusNode.requestFocus();
+      });
+    } else {
+      openKeyboard();
+    }
   }
 
   Widget _bottomWidget() => _showGestureHelp
@@ -821,12 +853,33 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     ];
   }
 
+  Future<void> _openGamepadMapping() async {
+    if (!mounted) return;
+    await Navigator.push(context,
+        MaterialPageRoute(builder: (context) => const GamepadMappingPage()));
+    if (mounted) _physicalFocusNode.requestFocus();
+  }
+
   void showActions(String id) async {
     final size = MediaQuery.of(context).size;
     final x = 120.0;
     final y = size.height;
     final mobileActionMenus = _getMobileActionMenus();
     final menus = toolbarControls(context, id, gFFI);
+    menus.insert(
+        0,
+        TTextMenu(
+          child: Text(translate('Control panel')),
+          onPressed: () => _controlPanel.openSheet(context),
+        ));
+    if (isAndroid) {
+      menus.insert(
+          1,
+          TTextMenu(
+            child: Text(translate('Controller')),
+            onPressed: _openGamepadMapping,
+          ));
+    }
 
     final List<PopupMenuEntry<int>> more = [
       ...mobileActionMenus

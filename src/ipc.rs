@@ -313,6 +313,25 @@ pub enum DataControl {
     },
 }
 
+#[cfg(target_os = "linux")]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "t", content = "c")]
+pub enum DataGamepad {
+    State {
+        conn_id: i32,
+        index: u32,
+        connected: bool,
+        buttons: u32,
+        lx: i32,
+        ly: i32,
+        rx: i32,
+        ry: i32,
+        lt: u32,
+        rt: u32,
+    },
+    Close(i32),
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "t", content = "c")]
 pub enum DataPortableService {
@@ -402,6 +421,8 @@ pub enum Data {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     Mouse(DataMouse),
     Control(DataControl),
+    #[cfg(target_os = "linux")]
+    Gamepad(DataGamepad),
     Theme(String),
     Language(String),
     Empty,

@@ -18,6 +18,7 @@ import '../../models/platform_model.dart';
 import '../../models/shortcut_model.dart';
 import '../../models/state_model.dart';
 import '../common/widgets/keyboard_shortcuts/shortcut_utils.dart';
+import 'gamepad_model.dart';
 import 'input_modifier_utils.dart';
 import 'local_flutter_shortcuts.dart';
 import 'relative_mouse_model.dart';
@@ -748,6 +749,9 @@ class InputModel {
   }
 
   KeyEventResult handleRawKeyEvent(RawKeyEvent e) {
+    if (GamepadModel.instance.shouldSwallowKey(e.physicalKey)) {
+      return KeyEventResult.handled;
+    }
     if (_localFlutterShortcuts.tryDispatchRaw(e)) return KeyEventResult.handled;
     if (isViewOnly) {
       if (isWeb && !isInputSourceFlutter) return KeyEventResult.ignored;
@@ -844,6 +848,9 @@ class InputModel {
   }
 
   KeyEventResult handleKeyEvent(KeyEvent e) {
+    if (GamepadModel.instance.shouldSwallowKey(e.physicalKey)) {
+      return KeyEventResult.handled;
+    }
     if (_localFlutterShortcuts.tryDispatch(e)) return KeyEventResult.handled;
     if (isViewOnly) {
       if (isWeb && !isInputSourceFlutter) return KeyEventResult.ignored;

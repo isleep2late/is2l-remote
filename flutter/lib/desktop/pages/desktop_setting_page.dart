@@ -1251,6 +1251,15 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
             _OptionCheckBox(
                 context, 'Enable keyboard/mouse', kOptionEnableKeyboard,
                 enabled: enabled, fakeValue: fakeValue),
+            if (isLinux)
+              _OptionCheckBox(
+                  context, 'Allow game controller input', 'allow-gamepad',
+                  enabled: enabled,
+                  optGetter: () =>
+                      bind.mainGetOptionSync(key: 'allow-gamepad') != 'N',
+                  optSetter: (key, value) async {
+                    await bind.mainSetOption(key: key, value: value ? 'Y' : 'N');
+                  }),
             if (isWindows)
               _OptionCheckBox(
                   context, 'Enable remote printer', kOptionEnableRemotePrinter,

@@ -708,6 +708,31 @@ pub fn session_input_string(session_id: SessionID, value: String) {
     }
 }
 
+pub fn session_send_gamepad(
+    session_id: SessionID,
+    index: u32,
+    connected: bool,
+    buttons: u32,
+    lx: i32,
+    ly: i32,
+    rx: i32,
+    ry: i32,
+    lt: u32,
+    rt: u32,
+) {
+    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        session.send_gamepad(index, connected, buttons, lx, ly, rx, ry, lt, rt);
+    }
+}
+
+pub fn session_peer_supports_gamepad(session_id: SessionID) -> SyncReturn<bool> {
+    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        SyncReturn(session.peer_supports_gamepad())
+    } else {
+        SyncReturn(false)
+    }
+}
+
 // chat_client_mode
 pub fn session_send_chat(session_id: SessionID, text: String) {
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {

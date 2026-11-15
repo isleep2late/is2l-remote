@@ -77,6 +77,7 @@ pub struct Session<T: InvokeUiSession> {
     pub reconnect_count: Arc<AtomicUsize>,
     pub last_audit_note: Arc<Mutex<String>>,
     pub audit_guid: Arc<Mutex<String>>,
+    pub gamepad_sent: Arc<Mutex<HashMap<u32, GamepadEvent>>>,
     // Every cursor shape as the peer sent it, compressed, by the id the UI knows it by. The
     // peer sends a shape once, and a window asks for it whenever it has to draw it again.
     #[cfg(feature = "flutter")]
@@ -778,6 +779,77 @@ impl<T: InvokeUiSession> Session<T> {
         self.swap_modifier_key(&mut msg);
         let mut msg_out = Message::new();
         msg_out.set_key_event(msg);
+        self.send(Data::Message(msg_out));
+    }
+
+    pub fn peer_supports_gamepad(&self) -> bool {
+        let lc = self.lc.read().unwrap();
+        lc.is_gamepad_supported() && lc.conn_type.eq(&ConnType::DEFAULT_CONN)
+    }
+
+    pub fn send_gamepad(
+        &self,
+        index: u32,
+        connected: bool,
+        buttons: u32,
+        lx: i32,
+        ly: i32,
+        rx: i32,
+        ry: i32,
+        lt: u32,
+        rt: u32,
+    ) {
+        let (supported, view_only) = {
+            let lc = self.lc.read().unwrap();
+            (
+                lc.is_gamepad_supported() && lc.conn_type.eq(&ConnType::DEFAULT_CONN),
+                lc.view_only.v,
+            )
+        };
+        if !supported {
+            return;
+        }
+        let mut sent = self.gamepad_sent.lock().unwrap();
+        if view_only || !*self.server_keyboard_enabled.read().unwrap() {
+            for (index, _) in sent.drain() {
+                let mut msg_out = Message::new();
+                msg_out.set_gamepad_event(GamepadEvent {
+                    index,
+                    ..Default::default()
+                });
+                self.send(Data::Message(msg_out));
+            }
+            return;
+        }
+        let evt = if connected {
+            GamepadEvent {
+                index,
+                connected,
+                buttons: buttons & 0x7FFF,
+                lx: lx.clamp(-32768, 32767),
+                ly: ly.clamp(-32768, 32767),
+                rx: rx.clamp(-32768, 32767),
+                ry: ry.clamp(-32768, 32767),
+                lt: lt.min(255),
+                rt: rt.min(255),
+                ..Default::default()
+            }
+        } else {
+            GamepadEvent {
+                index,
+                ..Default::default()
+            }
+        };
+        if connected {
+            if sent.get(&index) == Some(&evt) {
+                return;
+            }
+            sent.insert(index, evt.clone());
+        } else if sent.remove(&index).is_none() {
+            return;
+        }
+        let mut msg_out = Message::new();
+        msg_out.set_gamepad_event(evt);
         self.send(Data::Message(msg_out));
     }
 
@@ -1815,6 +1887,7 @@ impl<T: InvokeUiSession> Interface for Session<T> {
 
     fn handle_peer_info(&self, mut pi: PeerInfo) {
         log::debug!("handle_peer_info :{:?}", pi);
+        self.gamepad_sent.lock().unwrap().clear();
         self.lc.write().unwrap().peer_info = Some(pi.clone());
         if pi.current_display as usize >= pi.displays.len() {
             pi.current_display = 0;

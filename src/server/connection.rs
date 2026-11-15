@@ -429,6 +429,8 @@ pub struct Connection {
     options_in_login: Option<OptionMessage>,
     #[cfg(not(any(target_os = "ios")))]
     pressed_modifiers: HashSet<rdev::Key>,
+    #[cfg(target_os = "linux")]
+    gamepad_active: bool,
     closed: bool,
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     start_cm_ipc_para: Option<StartCmIpcPara>,
@@ -636,6 +638,8 @@ impl Connection {
             options_in_login: None,
             #[cfg(not(any(target_os = "ios")))]
             pressed_modifiers: Default::default(),
+            #[cfg(target_os = "linux")]
+            gamepad_active: false,
             closed: false,
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             start_cm_ipc_para: Some(StartCmIpcPara {
@@ -2104,6 +2108,8 @@ impl Connection {
             privacy_mode: privacy_mode::is_privacy_mode_supported(),
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             terminal,
+            #[cfg(target_os = "linux")]
+            gamepad: Config::get_option("allow-gamepad") != "N",
             ..Default::default()
         })
         .into();
@@ -3405,6 +3411,17 @@ impl Connection {
                         } else {
                             self.input_key(me, false);
                         }
+                    }
+                    self.update_auto_disconnect_timer();
+                }
+                #[cfg(target_os = "linux")]
+                Some(message::Union::GamepadEvent(evt)) => {
+                    if self.peer_keyboard_enabled() && Config::get_option("allow-gamepad") != "N" {
+                        self.gamepad_active = true;
+                        crate::server::gamepad_service::handle_event(self.inner.id(), &evt);
+                    } else if self.gamepad_active {
+                        self.gamepad_active = false;
+                        crate::server::gamepad_service::on_connection_closed(self.inner.id());
                     }
                     self.update_auto_disconnect_timer();
                 }
@@ -6218,6 +6235,7 @@ impl Connection {
             Some(message::Union::TerminalResponse(_)) => "terminal_response",
             Some(message::Union::PortForwardChannel(_)) => "port_forward_channel",
             Some(message::Union::OsLogin(_)) => "os_login",
+            Some(message::Union::GamepadEvent(_)) => "gamepad_event",
             Some(message::Union::Misc(misc)) => Self::misc_message_family(misc),
             Some(_) => "message.other",
             None => "empty",
@@ -6783,6 +6801,8 @@ impl Drop for Connection {
     fn drop(&mut self) {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         self.release_pressed_modifiers();
+        #[cfg(target_os = "linux")]
+        crate::server::gamepad_service::on_connection_closed(self.inner.id());
 
         if let Some(s) = self.terminal_generic_service.as_ref() {
             s.join();

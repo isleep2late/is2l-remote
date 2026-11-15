@@ -3518,6 +3518,14 @@ impl LoginConfigHandler {
         }
     }
 
+    pub fn is_gamepad_supported(&self) -> bool {
+        if let Some(features) = &self.features {
+            features.gamepad
+        } else {
+            false
+        }
+    }
+
     /// Create a [`Message`] for refreshing video.
     pub fn refresh() -> Message {
         let mut misc = Misc::new();

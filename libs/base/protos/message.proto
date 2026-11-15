@@ -104,6 +104,7 @@ message Features {
   bool privacy_mode = 1;
   bool terminal = 2;
   bool port_forward_mux = 3;
+  bool gamepad = 4;
 }
 
 message CodecAbility {
@@ -312,6 +313,18 @@ message KeyEvent {
   }
   repeated ControlKey modifiers = 8;
   KeyboardMode mode = 9;
+}
+
+message GamepadEvent {
+  uint32 index = 1;
+  bool connected = 2;
+  uint32 buttons = 3;
+  sint32 lx = 4;
+  sint32 ly = 5;
+  sint32 rx = 6;
+  sint32 ry = 7;
+  uint32 lt = 8;
+  uint32 rt = 9;
 }
 
 message CursorData {
@@ -1037,5 +1050,6 @@ message Message {
     PortForwardChannel port_forward_channel = 33;
     // Auto Login: the peer types the password only if it is at its logon or lock screen.
     OSLogin os_login = 34;
+    GamepadEvent gamepad_event = 35;
   }
 }

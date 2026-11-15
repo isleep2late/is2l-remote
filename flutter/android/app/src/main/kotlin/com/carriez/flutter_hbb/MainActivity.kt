@@ -20,6 +20,7 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.WindowManager
 import android.media.MediaCodecInfo
 import android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
@@ -74,10 +75,12 @@ class MainActivity : FlutterActivity() {
     )
 
     private var pendingPicker: PendingPicker? = null
+    private var controlPanelHost: ControlPanelHost? = null
     private val documentPicker by lazy { DocumentPicker(this) }
 
     private var isAudioStart = false
     private val audioRecordHandle = AudioRecordHandle(this, { false }, { isAudioStart })
+    private val gamepadCapture by lazy { GamepadCapture(this) }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -91,6 +94,9 @@ class MainActivity : FlutterActivity() {
             channelTag
         )
         initFlutterChannel(flutterMethodChannel!!)
+        gamepadCapture.attach(flutterEngine.dartExecutor.binaryMessenger)
+        controlPanelHost?.dispose()
+        controlPanelHost = ControlPanelHost(this, flutterEngine.dartExecutor.binaryMessenger)
         thread {
             try {
                 setCodecInfo()
@@ -111,7 +117,13 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (gamepadCapture.onGenericMotionEvent(event)) return true
+        return super.dispatchGenericMotionEvent(event)
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (gamepadCapture.onKeyEvent(event)) return true
         if (event.action == KeyEvent.ACTION_DOWN &&
             KeyEvent.isModifierKey(event.keyCode) && currentFocus == null) {
             // Android can drop modifier-first input when the native view has no focus.
@@ -255,6 +267,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         documentPicker.close()
+        gamepadCapture.detach()
         Log.e(logTag, "onDestroy")
         // The process can outlive the UI whenever something keeps it alive:
         // MainService, or the accessibility InputService on its own. Only the
@@ -266,6 +279,8 @@ class MainActivity : FlutterActivity() {
         if (isFinishing) {
             FFI.closeAllSessions()
         }
+        controlPanelHost?.dispose()
+        controlPanelHost = null
         mainService?.let {
             unbindService(serviceConnection)
         }
@@ -1024,6 +1039,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onStop() {
         super.onStop()
+        controlPanelHost?.onActivityStop()
         val disableFloatingWindow = FFI.getLocalOption("disable-floating-window") == "Y"
         if (!disableFloatingWindow && MainService.isReady) {
             startService(Intent(this, FloatingWindowService::class.java))
@@ -1033,5 +1049,6 @@ class MainActivity : FlutterActivity() {
     override fun onStart() {
         super.onStart()
         stopService(Intent(this, FloatingWindowService::class.java))
+        controlPanelHost?.onActivityStart()
     }
 }
