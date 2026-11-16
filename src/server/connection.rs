@@ -3421,6 +3421,13 @@ impl Connection {
                 }
                 #[cfg(target_os = "linux")]
                 Some(message::Union::GamepadEvent(evt)) => {
+                    if self.is_authed_view_camera_conn() {
+                        if self.gamepad_active {
+                            self.gamepad_active = false;
+                            crate::server::gamepad_service::on_connection_closed(self.inner.id());
+                        }
+                        return true;
+                    }
                     if self.peer_keyboard_enabled() && Config::get_option("allow-gamepad") != "N" {
                         self.gamepad_active = true;
                         crate::server::gamepad_service::handle_event(self.inner.id(), &evt);
