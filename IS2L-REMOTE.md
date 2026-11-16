@@ -1,6 +1,8 @@
 # is2l Remote
 
-is2l Remote is a modified copy of [RustDesk](https://github.com/rustdesk/rustdesk), the open-source remote desktop program. It is part of the is2l family. It starts from upstream RustDesk commit `7949eca` and adds three things for playing PC games from a handheld:
+is2l Remote is its own app: the fourth app of the is2l family, beside is2l, iswitch2late and iswitch2late Switch 2. It lets you play anything that is running on your computer from an Android handheld or phone: is2l and its emulators, Switch, PS4, PS5 and Xbox emulators, and PC games. Nothing in it has been built or tested so far; this file describes what the code is written to do, not what has been seen working.
+
+It is a modified copy of [RustDesk](https://github.com/rustdesk/rustdesk), the open-source remote desktop program. It starts from upstream RustDesk commit `7949eca` and adds three things for playing from a handheld:
 
 1. **Real game controller passthrough.** The buttons, sticks and triggers of the handheld (an AYN Thor, or a controller connected to a phone or a trifold) arrive on the PC as a real controller, not as keyboard keys.
 2. **A button-mapping screen.** Every physical button can be assigned to a different controller button, and the assignments are saved as named profiles.

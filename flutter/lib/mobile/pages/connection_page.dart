@@ -40,6 +40,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
   /// Controller for the id input bar.
   final _idController = IDTextEditingController();
   final RxBool _idEmpty = true.obs;
+  final RxBool _showIs2lIntro =
+      (bind.mainGetLocalOption(key: "is2l-intro-dismissed") != "Y").obs;
+  final RxBool _is2lIntroExpanded = false.obs;
 
   final FocusNode _idFocusNode = FocusNode();
   final TextEditingController _idEditingController = TextEditingController();
@@ -87,6 +90,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
           if (!bind.isCustomClient() && !isIOS)
             Obx(() => _buildUpdateUI(stateGlobal.updateUrl.value)),
           _buildRemoteIDTextField(),
+          if (isAndroid) Obx(() => _buildIs2lIntro()),
         ])),
         SliverFillRemaining(
           hasScrollBody: true,
@@ -143,6 +147,83 @@ class _ConnectionPageState extends State<ConnectionPage> {
                 child: Text(translate('Download new version'),
                     style: const TextStyle(
                         color: Colors.white, fontWeight: FontWeight.bold))));
+  }
+
+  Widget _buildIs2lIntro() {
+    if (!_showIs2lIntro.value) {
+      return const SizedBox(height: 0);
+    }
+    final expanded = _is2lIntroExpanded.value;
+    const bodyStyle = TextStyle(fontSize: 13, color: MyTheme.darkGray);
+    const linkStyle = TextStyle(
+      fontSize: 13,
+      color: MyTheme.accent,
+      decoration: TextDecoration.underline,
+    );
+    final card = Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(left: 2, right: 2, bottom: 8),
+      padding: const EdgeInsets.only(left: 16, right: 4, top: 4, bottom: 10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.all(Radius.circular(13)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text('is2l Remote',
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+              IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    bind.mainSetLocalOption(
+                        key: "is2l-intro-dismissed", value: "Y");
+                    _showIs2lIntro.value = false;
+                  },
+                  icon: Icon(Icons.clear, color: MyTheme.darkGray)),
+            ],
+          ),
+          Text(
+            translate(
+                'Play anything that runs on your computer from this device: is2l and its emulators, Switch, PS4, PS5, Xbox and PC games.'),
+            style: bodyStyle,
+          ).marginOnly(right: 12),
+          if (expanded)
+            Text(
+              translate(
+                  "Your controller's buttons, sticks and triggers are sent to the computer as a real game controller, and you can remap every button under Controller during a session. On an AYN Thor the bottom screen becomes the control panel. Your computer needs is2l Remote installed as a service with 'Allow game controller input' on; with plain RustDesk on the computer, buttons are sent as keyboard keys instead."),
+              style: bodyStyle,
+            ).marginOnly(right: 12, top: 6),
+          Wrap(
+            spacing: 16,
+            children: [
+              InkWell(
+                onTap: () => _is2lIntroExpanded.value = !expanded,
+                child: Text(translate(expanded ? 'Show less' : 'Show more'),
+                    style: linkStyle),
+              ),
+              InkWell(
+                onTap: () async {
+                  final url =
+                      'https://github.com/isleep2late/rustdesk/blob/is2l-remote/IS2L-REMOTE.md';
+                  await launchUrl(Uri.parse(url));
+                },
+                child: Text('${translate('How to set it up')}: IS2L-REMOTE.md',
+                    style: linkStyle),
+              ),
+            ],
+          ).marginOnly(right: 12, top: 6),
+        ],
+      ),
+    );
+    return Align(
+        alignment: Alignment.topCenter,
+        child: Container(constraints: kMobilePageConstraints, child: card));
   }
 
   /// UI for the remote ID TextField.
