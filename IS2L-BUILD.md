@@ -1,6 +1,8 @@
 # Building is2l Remote
 
-These are the steps this repository's CI uses (`.github/workflows/flutter-build.yml`, `.github/workflows/bridge.yml`, `flutter/build_android_deps.sh`, `flutter/ndk_arm64.sh`, `build.py`), written out for a local Linux x86_64 machine. They have **not** been run for this fork; nothing here has been built yet.
+These are the steps this repository's CI uses (`.github/workflows/flutter-build.yml`, `.github/workflows/bridge.yml`, `flutter/build_android_deps.sh`, `flutter/ndk_arm64.sh`, `build.py`), written out for a local Linux x86_64 machine. The Android APK and the Linux host of this fork compile; the result has **never been run** on a device or between two machines.
+
+is2l Remote is its own project in its own repository, https://github.com/isleep2late/is2l-remote, a fork of RustDesk (AGPL-3.0). This program lets you use a controller to play games remotely on your desktop. What the fork adds and how to use it is in `IS2L-REMOTE.md`. Its controller set-up app, Hackmons Controller (https://github.com/isleep2late/Hackmons-Controller, MIT), is built from its own repository and is not part of this build.
 
 Run every command from the repository root unless a step says otherwise. Clone with submodules (`libs/hbb_common` is one):
 
@@ -192,7 +194,7 @@ export DEB_ARCH=amd64
 python3 ./build.py --flutter --skip-cargo
 ```
 
-`build.py` runs `flutter build linux --release` and packs the result, together with `res/rustdesk.service`, into `rustdesk-1.5.3.deb` in the repository root. Install it with `sudo apt install ./rustdesk-1.5.3.deb`. The package is still named `rustdesk` in this round, so it replaces a stock RustDesk on that PC. Installing the package sets up the `rustdesk` service, which runs as root and is the part that creates the virtual game controller.
+`build.py` runs `flutter build linux --release` and packs the result, together with `res/rustdesk.service`, into `rustdesk-1.5.3.deb` in the repository root. Install it with `sudo apt install ./rustdesk-1.5.3.deb`. The package is still named `rustdesk`, so it replaces a stock RustDesk on that PC. Installing the package sets up the `rustdesk` service, which runs as root and is the part that creates the virtual game controller.
 
 ## AGPL-3.0
 

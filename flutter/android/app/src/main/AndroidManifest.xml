@@ -24,6 +24,7 @@
             <!-- https://developer.android.com/training/package-visibility/use-cases#open-urls-custom-tabs -->
             <action android:name="android.support.customtabs.action.CustomTabsService" />
         </intent>
+        <package android:name="com.controllerlog.gcbridge" />
     </queries>
 
     <application
@@ -101,6 +102,15 @@
         <service
             android:name=".FloatingWindowService"
             android:enabled="true" />
+
+        <service
+            android:name=".PadFeedService"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.isleep2late.remote.PAD_FEED" />
+            </intent-filter>
+        </service>
 
         <!--
  Don't delete the meta-data below.

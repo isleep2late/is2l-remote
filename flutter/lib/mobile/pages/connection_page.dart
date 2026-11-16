@@ -190,13 +190,13 @@ class _ConnectionPageState extends State<ConnectionPage> {
           ),
           Text(
             translate(
-                'Play anything that runs on your computer from this device: is2l and its emulators, Switch, PS4, PS5, Xbox and PC games.'),
+                'This program lets you use a controller to play games remotely on your desktop.'),
             style: bodyStyle,
           ).marginOnly(right: 12),
           if (expanded)
             Text(
               translate(
-                  "Your controller's buttons, sticks and triggers are sent to the computer as a real game controller, and you can remap every button under Controller during a session. On an AYN Thor the bottom screen becomes the control panel. Your computer needs is2l Remote installed as a service with 'Allow game controller input' on; with plain RustDesk on the computer, buttons are sent as keyboard keys instead."),
+                  "Your controller's buttons, sticks and triggers are sent to the computer as a real game controller. To set up a controller, or to use one this device does not recognise, install Hackmons Controller and choose 'Controller set-up (Hackmons Controller)' during a session. On an AYN Thor the bottom screen becomes the control panel. Your computer needs is2l Remote installed as a service on Linux with 'Allow game controller input' on; with plain RustDesk on the computer, buttons are sent as keyboard keys instead."),
               style: bodyStyle,
             ).marginOnly(right: 12, top: 6),
           Wrap(
@@ -210,7 +210,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
               InkWell(
                 onTap: () async {
                   final url =
-                      'https://github.com/isleep2late/rustdesk/blob/is2l-remote/IS2L-REMOTE.md';
+                      'https://github.com/isleep2late/is2l-remote/blob/HEAD/IS2L-REMOTE.md';
                   await launchUrl(Uri.parse(url));
                 },
                 child: Text('${translate('How to set it up')}: IS2L-REMOTE.md',

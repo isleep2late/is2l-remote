@@ -36,6 +36,30 @@ class GamepadCapture(context: Context) : InputManager.InputDeviceListener,
         const val BTN_DPAD_DOWN = 1 shl 12
         const val BTN_DPAD_LEFT = 1 shl 13
         const val BTN_DPAD_RIGHT = 1 shl 14
+
+        @Volatile
+        private var feedChannel: MethodChannel? = null
+
+        fun externalPad(buttons: Int, axes: IntArray, name: String) {
+            val target = feedChannel ?: return
+            try {
+                target.invokeMethod(
+                    "externalPad",
+                    mapOf("buttons" to buttons, "axes" to axes.toList(), "name" to name)
+                )
+            } catch (e: Exception) {
+                Log.d("GamepadCapture", "externalPad dropped: ${e.message}")
+            }
+        }
+
+        fun externalPadGone() {
+            val target = feedChannel ?: return
+            try {
+                target.invokeMethod("externalPadGone", null)
+            } catch (e: Exception) {
+                Log.d("GamepadCapture", "externalPadGone dropped: ${e.message}")
+            }
+        }
     }
 
     private class Pad(val deviceId: Int, val index: Int) {
@@ -102,10 +126,14 @@ class GamepadCapture(context: Context) : InputManager.InputDeviceListener,
 
     fun attach(messenger: BinaryMessenger) {
         channel = MethodChannel(messenger, CHANNEL).also { it.setMethodCallHandler(this) }
+        feedChannel = channel
     }
 
     fun detach() {
         setCapture(false)
+        if (feedChannel === channel) {
+            feedChannel = null
+        }
         channel?.setMethodCallHandler(null)
         channel = null
     }

@@ -1,3 +1,18 @@
+# is2l Remote
+
+This program lets you use a controller to play games remotely on your desktop.
+
+is2l Remote is its own project, https://github.com/isleep2late/is2l-remote, a fork of [RustDesk](https://github.com/rustdesk/rustdesk) (AGPL-3.0). Stock RustDesk carries keyboard, mouse and touch only; this fork also carries controller input from an Android device to a virtual controller on a Linux host. It does not change RustDesk's video pipeline or its latency. Its controller set-up app is [Hackmons Controller](https://github.com/isleep2late/Hackmons-Controller) (MIT).
+
+Status: it compiles (Android APK and Linux host). It has **never been run** on a device or between two machines. The virtual controller exists on a Linux host only.
+
+- What it adds, how it works and how to install it: [IS2L-REMOTE.md](IS2L-REMOTE.md)
+- How to build it: [IS2L-BUILD.md](IS2L-BUILD.md)
+
+The rest of this file is the upstream RustDesk README, unchanged.
+
+---
+
 <p align="center">
   <img src="res/logo-header.svg" alt="RustDesk - Your remote desktop"><br>
   <a href="#raw-steps-to-build">Build</a> •

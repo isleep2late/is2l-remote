@@ -683,6 +683,25 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                 }
+                "launch_package" -> {
+                    val name = call.arguments as? String
+                    val launch = if (name.isNullOrEmpty()) {
+                        null
+                    } else {
+                        packageManager.getLaunchIntentForPackage(name)
+                    }
+                    if (launch == null) {
+                        result.success(false)
+                    } else {
+                        try {
+                            startActivity(launch)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            Log.d(logTag, "launch_package failed: ${e.message}")
+                            result.success(false)
+                        }
+                    }
+                }
                 "on_voice_call_started" -> {
                     onVoiceCallStarted()
                 }

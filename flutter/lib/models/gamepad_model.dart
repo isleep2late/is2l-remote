@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:get/get.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../common.dart';
 import 'input_model.dart';
@@ -13,10 +13,13 @@ import 'model.dart';
 import 'platform_model.dart';
 
 const String kGamepadChannel = 'is2l/gamepad';
-const String kOptionGamepadProfiles = 'is2l-gamepad-profiles';
-const String kOptionGamepadPeerProfiles = 'is2l-gamepad-peer-profiles';
 const String kOptionGamepadPassthrough = 'is2l-gamepad-passthrough';
-const String kGamepadDefaultProfile = 'Xbox layout';
+const String kGamepadDefaultProfile = 'Standard';
+const String kHackmonsControllerPackage = 'com.controllerlog.gcbridge';
+const String kHackmonsControllerReleases =
+    'https://github.com/isleep2late/Hackmons-Controller/releases';
+const String kControllerSetupLabel = 'Controller set-up (Hackmons Controller)';
+const Duration kExternalPadTimeout = Duration(seconds: 2);
 
 const int kGamepadTriggerThreshold = 128;
 const double kGamepadStickThreshold = 0.5;
@@ -33,6 +36,23 @@ const List<String> kGamepadButtons = [
   'mode',
   'l3',
   'r3',
+  'dpad_up',
+  'dpad_down',
+  'dpad_left',
+  'dpad_right',
+];
+const List<String> kExternalPadButtons = [
+  'a',
+  'b',
+  'x',
+  'y',
+  'select',
+  'mode',
+  'start',
+  'l3',
+  'r3',
+  'l1',
+  'r1',
   'dpad_up',
   'dpad_down',
   'dpad_left',
@@ -545,6 +565,23 @@ GamepadMapped mapGamepadState(GamepadProfile profile, GamepadRawState raw) {
   return m;
 }
 
+Future<void> openControllerSetup() async {
+  if (isAndroid) {
+    try {
+      final opened = await gFFI.invokeMethod(
+          'launch_package', kHackmonsControllerPackage);
+      if (opened) return;
+    } catch (e) {
+      debugPrint('gamepad: launch_package failed: $e');
+    }
+  }
+  try {
+    await launchUrl(Uri.parse(kHackmonsControllerReleases));
+  } catch (e) {
+    debugPrint('gamepad: failed to open $kHackmonsControllerReleases: $e');
+  }
+}
+
 class GamepadModel extends ChangeNotifier with WidgetsBindingObserver {
   GamepadModel._();
   static final GamepadModel instance = GamepadModel._();
@@ -564,9 +601,8 @@ class GamepadModel extends ChangeNotifier with WidgetsBindingObserver {
   bool? _peerSupports;
   DateTime? _peerSupportsCheckedAt;
 
-  final List<GamepadProfile> _profiles = [];
-  Map<String, String> _peerProfiles = {};
-  String _activeName = kGamepadDefaultProfile;
+  final GamepadProfile _identity =
+      GamepadProfile.identity(kGamepadDefaultProfile);
 
   final Map<int, GamepadRawState> _rawStates = {};
   final Map<int, GamepadMapped> _mapped = {};
@@ -578,6 +614,11 @@ class GamepadModel extends ChangeNotifier with WidgetsBindingObserver {
   Timer? _mouseTimer;
   Worker? _piWorker;
 
+  GamepadMapped? _external;
+  DateTime? _externalAt;
+  String _externalName = '';
+  Timer? _externalTimer;
+
   void Function(int index, String input)? onInputPressed;
 
   bool get enabled => _enabled;
@@ -585,19 +626,17 @@ class GamepadModel extends ChangeNotifier with WidgetsBindingObserver {
   bool get passthroughActive => _sessionActive && _enabled;
   bool get keyboardFallback => _sessionActive && _peerSupports == false;
   bool get peerSupportKnown => _peerSupports != null;
-  String get profileName => _activeName;
   String get peerId => _peerId;
-  List<GamepadProfile> get profiles {
-    _ensureLoaded();
-    return List.unmodifiable(_profiles);
-  }
+  bool get externalFeedLive => _external != null;
+  String get externalName => _externalName;
   Map<int, GamepadRawState> get rawStates => _rawStates;
   GamepadMapped? mappedFor(int index) => _mapped[index];
 
-  GamepadProfile get active {
-    _ensureLoaded();
-    return _profiles.firstWhere((p) => p.name == _activeName,
-        orElse: () => _profiles.first);
+  GamepadProfile get active => _identity;
+
+  Map<int, GamepadMapped> get _outgoing {
+    final external = _external;
+    return external != null ? {0: external} : _mapped;
   }
 
   bool shouldSwallowKey(PhysicalKeyboardKey key) {
@@ -615,52 +654,7 @@ class GamepadModel extends ChangeNotifier with WidgetsBindingObserver {
   void _ensureLoaded() {
     if (_loaded) return;
     _loaded = true;
-    _profiles.clear();
-    try {
-      final text = bind.mainGetLocalOption(key: kOptionGamepadProfiles);
-      if (text.isNotEmpty) {
-        final list = jsonDecode(text);
-        if (list is List) {
-          for (final item in list) {
-            final p = GamepadProfile.fromJson(item);
-            if (p != null && !_profiles.any((e) => e.name == p.name)) {
-              _profiles.add(p);
-            }
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('gamepad: failed to load profiles: $e');
-    }
-    if (!_profiles.any((p) => p.name == kGamepadDefaultProfile)) {
-      _profiles.insert(0, GamepadProfile.identity(kGamepadDefaultProfile));
-    }
-    _peerProfiles = {};
-    try {
-      final text = bind.mainGetLocalOption(key: kOptionGamepadPeerProfiles);
-      if (text.isNotEmpty) {
-        final map = jsonDecode(text);
-        if (map is Map) {
-          map.forEach((k, v) {
-            if (k is String && v is String) _peerProfiles[k] = v;
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint('gamepad: failed to load peer profiles: $e');
-    }
     _enabled = bind.mainGetLocalOption(key: kOptionGamepadPassthrough) != 'N';
-  }
-
-  void _saveProfiles() {
-    bind.mainSetLocalOption(
-        key: kOptionGamepadProfiles,
-        value: jsonEncode(_profiles.map((p) => p.toJson()).toList()));
-  }
-
-  void _savePeerProfiles() {
-    bind.mainSetLocalOption(
-        key: kOptionGamepadPeerProfiles, value: jsonEncode(_peerProfiles));
   }
 
   void startSession(FFI ffi, String peerId) {
@@ -672,10 +666,6 @@ class GamepadModel extends ChangeNotifier with WidgetsBindingObserver {
     _sessionActive = true;
     _peerSupports = null;
     _peerSupportsCheckedAt = null;
-    final remembered = _peerProfiles[peerId];
-    _activeName = remembered != null && _profiles.any((p) => p.name == remembered)
-        ? remembered
-        : kGamepadDefaultProfile;
     _piWorker?.dispose();
     _piWorker = ever(ffi.ffiModel.pi.isSet, (bool isSet) {
       if (isSet) _forwardAll();
@@ -757,109 +747,6 @@ class GamepadModel extends ChangeNotifier with WidgetsBindingObserver {
     return [];
   }
 
-  void selectProfile(String name) {
-    _ensureLoaded();
-    if (!_profiles.any((p) => p.name == name)) return;
-    _activeName = name;
-    if (_peerId.isNotEmpty) {
-      _peerProfiles[_peerId] = name;
-      _savePeerProfiles();
-    }
-    _remapAll();
-  }
-
-  bool profileNameAvailable(String name) =>
-      name.trim().isNotEmpty && !_profiles.any((p) => p.name == name.trim());
-
-  bool createProfile(String name) {
-    _ensureLoaded();
-    name = name.trim();
-    if (!profileNameAvailable(name)) return false;
-    _profiles.add(GamepadProfile.identity(name));
-    _saveProfiles();
-    selectProfile(name);
-    return true;
-  }
-
-  bool duplicateProfile(String name) {
-    _ensureLoaded();
-    name = name.trim();
-    if (!profileNameAvailable(name)) return false;
-    _profiles.add(active.copy(name));
-    _saveProfiles();
-    selectProfile(name);
-    return true;
-  }
-
-  bool renameProfile(String name) {
-    _ensureLoaded();
-    name = name.trim();
-    final current = active;
-    if (current.name == kGamepadDefaultProfile) return false;
-    if (!profileNameAvailable(name)) return false;
-    final old = current.name;
-    current.name = name;
-    _activeName = name;
-    for (final k in _peerProfiles.keys.toList()) {
-      if (_peerProfiles[k] == old) _peerProfiles[k] = name;
-    }
-    _saveProfiles();
-    _savePeerProfiles();
-    notifyListeners();
-    return true;
-  }
-
-  bool deleteProfile() {
-    _ensureLoaded();
-    final current = active;
-    if (current.name == kGamepadDefaultProfile) return false;
-    _profiles.remove(current);
-    _peerProfiles.removeWhere((k, v) => v == current.name);
-    _activeName = kGamepadDefaultProfile;
-    _saveProfiles();
-    _savePeerProfiles();
-    _remapAll();
-    return true;
-  }
-
-  void resetProfile() {
-    _ensureLoaded();
-    final current = active;
-    final identity = GamepadProfile.identity(current.name);
-    current.buttons
-      ..clear()
-      ..addAll(identity.buttons);
-    current.sticks
-      ..clear()
-      ..addAll(identity.sticks);
-    _saveProfiles();
-    _remapAll();
-  }
-
-  void setOutput(String input, GamepadOutput output) {
-    _ensureLoaded();
-    active.buttons[input] = output;
-    _saveProfiles();
-    _remapAll();
-  }
-
-  void setStick(String stick, GamepadStickConfig config) {
-    _ensureLoaded();
-    active.sticks[stick] = config;
-    _saveProfiles();
-    _remapAll();
-  }
-
-  void _remapAll() {
-    final profile = active;
-    for (final e in _rawStates.entries) {
-      _mapped[e.key] = mapGamepadState(profile, e.value);
-    }
-    _forwardAll();
-    live.value++;
-    notifyListeners();
-  }
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final foreground = !(state == AppLifecycleState.paused ||
@@ -885,8 +772,73 @@ class GamepadModel extends ChangeNotifier with WidgetsBindingObserver {
     if (call.method == 'state') {
       final args = call.arguments;
       if (args is Map) _onState(GamepadRawState.fromMap(args));
+    } else if (call.method == 'externalPad') {
+      final args = call.arguments;
+      if (args is Map) _onExternalPad(args);
+    } else if (call.method == 'externalPadGone') {
+      _clearExternalPad();
     }
     return null;
+  }
+
+  int _externalTrigger(int value) =>
+      (value.clamp(0, 32767) * 255 / 32767).round().clamp(0, 255).toInt();
+
+  void _onExternalPad(Map<dynamic, dynamic> args) {
+    final axes = args['axes'];
+    if (axes is! List || axes.length < 6) return;
+    int axis(int i) {
+      final v = axes[i];
+      return v is num ? v.toInt() : 0;
+    }
+
+    int stick(int i) => axis(i).clamp(-32768, 32767).toInt();
+
+    final bits = GamepadRawState._int(args['buttons']);
+    final m = GamepadMapped();
+    for (var i = 0; i < kExternalPadButtons.length; i++) {
+      if ((bits & (1 << i)) != 0) {
+        m.buttons |= 1 << kGamepadButtons.indexOf(kExternalPadButtons[i]);
+      }
+    }
+    m.lx = stick(0);
+    m.ly = stick(1);
+    m.rx = stick(2);
+    m.ry = stick(3);
+    m.lt = _externalTrigger(axis(4));
+    m.rt = _externalTrigger(axis(5));
+    final name = '${args['name'] ?? ''}';
+    final changed = _external == null || name != _externalName;
+    _external = m;
+    _externalName = name;
+    _externalAt = DateTime.now();
+    _externalTimer ??= Timer.periodic(
+        const Duration(milliseconds: 250), (_) => _checkExternalPad());
+    if (_foreground) _forwardAll();
+    if (changed) {
+      live.value++;
+      notifyListeners();
+    }
+  }
+
+  void _checkExternalPad() {
+    final at = _externalAt;
+    if (at == null || DateTime.now().difference(at) >= kExternalPadTimeout) {
+      _clearExternalPad();
+    }
+  }
+
+  void _clearExternalPad() {
+    _externalTimer?.cancel();
+    _externalTimer = null;
+    _externalAt = null;
+    if (_external == null) return;
+    _external = null;
+    _externalName = '';
+    _forwardAll();
+    if (!_mapped.containsKey(0)) _dropPad(0);
+    live.value++;
+    notifyListeners();
   }
 
   void _onState(GamepadRawState state) {
@@ -895,7 +847,7 @@ class GamepadModel extends ChangeNotifier with WidgetsBindingObserver {
       _rawStates.remove(state.index);
       _mapped.remove(state.index);
       _forwardAll();
-      _dropPad(state.index);
+      if (!_outgoing.containsKey(state.index)) _dropPad(state.index);
       live.value++;
       notifyListeners();
       return;
@@ -955,7 +907,11 @@ class GamepadModel extends ChangeNotifier with WidgetsBindingObserver {
     final mouse = <String>{};
     var vx = 0.0;
     var vy = 0.0;
-    for (final e in _mapped.entries) {
+    final outgoing = _outgoing;
+    for (final index in _sentPads.keys.toList()) {
+      if (!outgoing.containsKey(index)) _dropPad(index);
+    }
+    for (final e in outgoing.entries) {
       final m = e.value;
       keys.addAll(m.keys);
       mouse.addAll(m.mouse);

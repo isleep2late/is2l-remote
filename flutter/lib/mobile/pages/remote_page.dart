@@ -27,7 +27,6 @@ import '../../utils/image.dart';
 import '../widgets/dialog.dart';
 import '../widgets/custom_scale_widget.dart';
 import '../widgets/control_panel.dart';
-import 'gamepad_mapping_page.dart';
 
 final initText = '1' * 1024;
 
@@ -181,7 +180,6 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _controlPanel.start();
     GamepadModel.instance.startSession(gFFI, widget.id);
-    ControlPanelController.gamepad.openMapping = _openGamepadMapping;
 
     inputModel.keyboardInputAllowed = true;
 
@@ -203,7 +201,6 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     HardwareKeyboard.instance.removeHandler(_handleLocalKeyEvent);
     WidgetsBinding.instance.removeObserver(this);
     _controlPanel.stop();
-    ControlPanelController.gamepad.openMapping = null;
     GamepadModel.instance.endSession();
     // Close the session up-front. `gFFI.close()` below only calls `sessionClose`
     // after several awaits (canvas save, image update, the `enable_soft_keyboard`
@@ -853,13 +850,6 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     ];
   }
 
-  Future<void> _openGamepadMapping() async {
-    if (!mounted) return;
-    await Navigator.push(context,
-        MaterialPageRoute(builder: (context) => const GamepadMappingPage()));
-    if (mounted) _physicalFocusNode.requestFocus();
-  }
-
   void showActions(String id) async {
     final size = MediaQuery.of(context).size;
     final x = 120.0;
@@ -876,8 +866,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       menus.insert(
           1,
           TTextMenu(
-            child: Text(translate('Controller')),
-            onPressed: _openGamepadMapping,
+            child: Text(translate(kControllerSetupLabel)),
+            onPressed: openControllerSetup,
           ));
     }
 

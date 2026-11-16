@@ -59,10 +59,8 @@ class ControlPanelPresentation(
     private var qualityView: TextView? = null
     private var codecButton: Button? = null
     private var gamepadButton: Button? = null
-    private var profileView: TextView? = null
-    private var profilePrevButton: Button? = null
-    private var profileNextButton: Button? = null
-    private var mappingButton: Button? = null
+    private var padSourceView: TextView? = null
+    private var setupButton: Button? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -213,17 +211,14 @@ class ControlPanelPresentation(
 
         val gamepad = makeButton("Controller") { send("toggle_gamepad") }
         gamepadButton = gamepad
-        val mapping = makeButton("Open mapping") { send("open_mapping") }
-        mappingButton = mapping
-        val profile = makeLabel(14f, colorText)
-        profileView = profile
-        val profilePrev = makeButton("<") { send("profile_prev") }
-        val profileNext = makeButton(">") { send("profile_next") }
-        profilePrevButton = profilePrev
-        profileNextButton = profileNext
-        val gamepadRow = makeRow(gamepad, mapping)
-        val profileRow = makeRow(profilePrev, profile, profileNext)
-        (profile.layoutParams as? LinearLayout.LayoutParams)?.weight = 2f
+        val setup = makeButton("Controller set-up (Hackmons Controller)") {
+            send("controller_setup")
+        }
+        setupButton = setup
+        val padSource = makeLabel(14f, colorText)
+        padSourceView = padSource
+        val gamepadRow = makeRow(gamepad, padSource)
+        val setupRow = makeRow(setup)
 
         val controls = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -234,7 +229,7 @@ class ControlPanelPresentation(
             addView(qualityRow)
             addView(codecRow)
             addView(gamepadRow)
-            addView(profileRow)
+            addView(setupRow)
         }
         val scroll = ScrollView(context).apply {
             isFillViewport = false
@@ -316,11 +311,10 @@ class ControlPanelPresentation(
         gamepadButton?.text = if (gamepadOn) "Controller: on" else "Controller: off"
         setActive(gamepadButton, gamepadOn)
         setEnabled(gamepadButton, gamepadAvailable)
-        setEnabled(mappingButton, flag("mapping_available"))
-        setEnabled(profilePrevButton, gamepadAvailable)
-        setEnabled(profileNextButton, gamepadAvailable)
-        val profile = text("profile")
-        profileView?.text = if (profile.isEmpty()) "No profile" else profile
+        setEnabled(setupButton, flag("setup_available"))
+        val padSource = text("pad_source")
+        padSourceView?.text =
+            if (padSource.isEmpty()) "Input: this device" else "Input: $padSource"
     }
 
     private class TouchPadView(

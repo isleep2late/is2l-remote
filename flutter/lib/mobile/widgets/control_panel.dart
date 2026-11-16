@@ -28,9 +28,7 @@ const kPanelActionQualityUp = 'quality_up';
 const kPanelActionQualityDown = 'quality_down';
 const kPanelActionCodecNext = 'codec_next';
 const kPanelActionToggleGamepad = 'toggle_gamepad';
-const kPanelActionProfileNext = 'profile_next';
-const kPanelActionProfilePrev = 'profile_prev';
-const kPanelActionOpenMapping = 'open_mapping';
+const kPanelActionControllerSetup = 'controller_setup';
 const kPanelActionMouseMove = 'mouse_move';
 const kPanelActionMouseClick = 'mouse_click';
 const kPanelActionMouseScroll = 'mouse_scroll';
@@ -51,9 +49,8 @@ const _kPanelMuted = Color(0xFFA0A8B4);
 class ControlPanelGamepadBinding {
   bool Function()? isActive;
   FutureOr<void> Function()? toggle;
-  String Function()? profileName;
-  FutureOr<void> Function(int step)? cycleProfile;
-  FutureOr<void> Function()? openMapping;
+  String Function()? padSource;
+  FutureOr<void> Function()? openSetup;
 
   bool get attached => toggle != null;
 
@@ -64,23 +61,15 @@ class ControlPanelGamepadBinding {
     toggle ??= () {
       model.toggleEnabled();
     };
-    profileName ??= () => model.profileName;
-    cycleProfile ??= (int step) {
-      final current = model.active.name;
-      final names = model.profiles.map((p) => p.name).toList();
-      if (names.isNotEmpty) {
-        final index = names.indexOf(current);
-        model.selectProfile(names[(index + step) % names.length]);
-      }
-    };
+    padSource ??= () => model.externalFeedLive ? 'Hackmons Controller' : '';
+    openSetup ??= openControllerSetup;
   }
 
   void clear() {
     isActive = null;
     toggle = null;
-    profileName = null;
-    cycleProfile = null;
-    openMapping = null;
+    padSource = null;
+    openSetup = null;
   }
 }
 
@@ -283,9 +272,9 @@ class ControlPanelController {
       'delay': data.delay ?? '',
       'quality': _qualityLabel,
       'gamepad': binding.isActive?.call() ?? false,
-      'profile': binding.profileName?.call() ?? '',
+      'pad_source': binding.padSource?.call() ?? '',
       'gamepad_available': binding.attached,
-      'mapping_available': binding.openMapping != null,
+      'setup_available': binding.openSetup != null,
       'gamepad_supported': gamepadSupported,
       'keyboard': isKeyboardVisible(),
       'target_fps': _effectiveFps,
@@ -362,21 +351,12 @@ class ControlPanelController {
           await toggle();
         }
         break;
-      case kPanelActionProfileNext:
-      case kPanelActionProfilePrev:
-        final cycle = ControlPanelController.gamepad.cycleProfile;
-        if (cycle == null) {
+      case kPanelActionControllerSetup:
+        final openSetup = ControlPanelController.gamepad.openSetup;
+        if (openSetup == null) {
           _gamepadUnavailable();
         } else {
-          await cycle(action == kPanelActionProfileNext ? 1 : -1);
-        }
-        break;
-      case kPanelActionOpenMapping:
-        final openMapping = ControlPanelController.gamepad.openMapping;
-        if (openMapping == null) {
-          _gamepadUnavailable();
-        } else {
-          await openMapping();
+          await openSetup();
         }
         break;
       default:
@@ -664,7 +644,7 @@ class _ControlPanelSheetState extends State<ControlPanelSheet> {
   Widget _controls(Map<String, dynamic> state) {
     final gamepadAvailable = state['gamepad_available'] == true;
     final gamepadOn = state['gamepad'] == true;
-    final profile = '${state['profile'] ?? ''}';
+    final padSource = '${state['pad_source'] ?? ''}';
     final codecPref = '${state['codec_pref'] ?? ''}';
     final targetFps = '${state['target_fps'] ?? ''}';
     final quality = '${state['quality'] ?? ''}';
@@ -708,18 +688,16 @@ class _ControlPanelSheetState extends State<ControlPanelSheet> {
           _button(gamepadOn ? 'Controller: on' : 'Controller: off',
               gamepadAvailable ? () => _send(kPanelActionToggleGamepad) : null,
               color: gamepadOn ? _kPanelActive : _kPanelSurface),
-          _button(
-              'Open mapping',
-              state['mapping_available'] == true
-                  ? () => _closeThenSend(kPanelActionOpenMapping)
-                  : null),
+          _label(padSource.isEmpty
+              ? 'Input: this device'
+              : 'Input: $padSource'),
         ]),
         Row(children: [
-          _button('<',
-              gamepadAvailable ? () => _send(kPanelActionProfilePrev) : null),
-          _label(profile.isEmpty ? 'No profile' : profile, flex: 2),
-          _button('>',
-              gamepadAvailable ? () => _send(kPanelActionProfileNext) : null),
+          _button(
+              kControllerSetupLabel,
+              state['setup_available'] == true
+                  ? () => _closeThenSend(kPanelActionControllerSetup)
+                  : null),
         ]),
       ],
     );
